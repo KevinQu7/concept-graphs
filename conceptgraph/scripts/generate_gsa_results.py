@@ -27,6 +27,8 @@ from torch.utils.data import Dataset
 import supervision as sv
 from tqdm import trange
 
+import sys 
+sys.path.append('/home/kev/repos/concept-graphs')
 from conceptgraph.dataset.datasets_common import get_dataset
 from conceptgraph.utils.vis import vis_result_fast, vis_result_slow_caption
 from conceptgraph.utils.model_utils import compute_clip_features
@@ -34,6 +36,8 @@ import torch.nn.functional as F
 
 
 try: 
+    sys.path.append('/home/kev/packages/Grounded-Segment-Anything/GroundingDINO')
+    sys.path.append('/home/kev/packages/Grounded-Segment-Anything/segment_anything')
     from groundingdino.util.inference import Model
     from segment_anything import sam_model_registry, SamPredictor, SamAutomaticMaskGenerator
 except ImportError as e:
@@ -56,6 +60,7 @@ sys.path.append(EFFICIENTSAM_PATH)
 
 import torchvision.transforms as TS
 try:
+    sys.path.append('/home/kev/packages/Grounded-Segment-Anything/recognize-anything')
     from ram.models import ram
     from ram.models import tag2text
     from ram import inference_tag2text, inference_ram

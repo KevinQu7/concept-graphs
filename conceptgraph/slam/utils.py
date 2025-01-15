@@ -21,10 +21,107 @@ import uuid
 
 from conceptgraph.slam.slam_classes import MapEdgeMapping, MapObjectList, DetectionList, to_tensor
 
-from conceptgraph.utils.ious import compute_3d_iou, compute_3d_iou_accurate_batch, compute_iou_batch
+from conceptgraph.utils.ious import compute_3d_iou, compute_3d_iou_accurate_batch, compute_iou_batch, mask_subtract_contained
 
 tracker = MappingTracker()
 
+def gobs_to_detection_list(
+    cfg, 
+    image, 
+    depth_array,
+    cam_K, 
+    idx, 
+    gobs, 
+    trans_pose = None,
+    class_names = None,
+    BG_CLASSES = ["wall", "floor", "ceiling"],
+    color_path = None,
+):
+    '''
+    Return a DetectionList object from the gobs
+    All object are still in the camera frame. 
+    '''
+    fg_detection_list = DetectionList()
+    bg_detection_list = DetectionList()
+    
+    print(gobs.keys())
+    
+    gobs = resize_gobs(gobs, image)
+    gobs = filter_gobs(cfg, gobs, image, BG_CLASSES)
+    
+    if len(gobs['xyxy']) == 0:
+        return fg_detection_list, bg_detection_list
+    
+    # Compute the containing relationship among all detections and subtract fg from bg objects
+    xyxy = gobs['xyxy']
+    mask = gobs['mask']
+    gobs['mask'] = mask_subtract_contained(xyxy, mask)
+    
+    n_masks = len(gobs['xyxy'])
+    for mask_idx in range(n_masks):
+        local_class_id = gobs['class_id'][mask_idx]
+        mask = gobs['mask'][mask_idx]
+        class_name = gobs['classes'][local_class_id]
+        global_class_id = -1 if class_names is None else class_names.index(class_name)
+        
+        # make the pcd and color it
+        camera_object_pcd = create_object_pcd(
+            depth_array,
+            mask,
+            cam_K,
+            image,
+            obj_color = None
+        )
+        
+        # It at least contains 5 points
+        if len(camera_object_pcd.points) < max(cfg.min_points_threshold, 5): 
+            continue
+        
+        if trans_pose is not None:
+            global_object_pcd = camera_object_pcd.transform(trans_pose)
+        else:
+            global_object_pcd = camera_object_pcd
+        
+        # get largest cluster, filter out noise 
+        global_object_pcd = process_pcd(global_object_pcd, cfg)
+        
+        pcd_bbox = get_bounding_box(cfg, global_object_pcd)
+        pcd_bbox.color = [0,1,0]
+        
+        if pcd_bbox.volume() < 1e-6:
+            continue
+        
+        # Treat the detection in the same way as a 3D object
+        # Store information that is enough to recover the detection
+        detected_object = {
+            'image_idx' : [idx],                             # idx of the image
+            'mask_idx' : [mask_idx],                         # idx of the mask/detection
+            'color_path' : [color_path],                     # path to the RGB image
+            'class_name' : [class_name],                         # global class id for this detection
+            'class_id' : [global_class_id],                         # global class id for this detection
+            'num_detections' : 1,                            # number of detections in this object
+            'mask': [mask],
+            'xyxy': [gobs['xyxy'][mask_idx]],
+            'conf': [gobs['confidence'][mask_idx]],
+            'n_points': [len(global_object_pcd.points)],
+            'pixel_area': [mask.sum()],
+            'contain_number': [None],                          # This will be computed later
+            "inst_color": np.random.rand(3),                 # A random color used for this segment instance
+            'is_background': class_name in BG_CLASSES,
+            
+            # These are for the entire 3D object
+            'pcd': global_object_pcd,
+            'bbox': pcd_bbox,
+            'clip_ft': to_tensor(gobs['image_feats'][mask_idx]),
+            'text_ft': to_tensor(gobs['text_feats'][mask_idx]),
+        }
+        
+        if class_name in BG_CLASSES:
+            bg_detection_list.append(detected_object)
+        else:
+            fg_detection_list.append(detected_object)
+    
+    return fg_detection_list, bg_detection_list
 
 def to_scalar(d: np.ndarray | torch.Tensor | float) -> int | float:
     '''
@@ -824,71 +921,55 @@ def filter_captions(captions, detection_class_labels):
 
 # @profile
 def filter_gobs(
+    cfg: DictConfig,
     gobs: dict,
     image: np.ndarray,
-    skip_bg: bool = None,  # Explicitly passing skip_bg
-    BG_CLASSES: list = None,  # Explicitly passing BG_CLASSES
-    mask_area_threshold: float = 10,  # Default value as fallback
-    max_bbox_area_ratio: float = None,  # Explicitly passing max_bbox_area_ratio
-    mask_conf_threshold: float = None,  # Explicitly passing mask_conf_threshold
+    BG_CLASSES = ["wall", "floor", "ceiling"],
 ):
     # If no detection at all
     if len(gobs['xyxy']) == 0:
         return gobs
-
+    
     # Filter out the objects based on various criteria
     idx_to_keep = []
     for mask_idx in range(len(gobs['xyxy'])):
         local_class_id = gobs['class_id'][mask_idx]
         class_name = gobs['classes'][local_class_id]
-
-        # Skip masks that are too small
-        mask_area = gobs['mask'][mask_idx].sum()
-        if mask_area < max(mask_area_threshold, 10):
-            logging.debug(f"Skipped due to small mask area ({mask_area} pixels) - Class: {class_name}")
+        
+        # SKip masks that are too small
+        if gobs['mask'][mask_idx].sum() < max(cfg.mask_area_threshold, 10):
             continue
-
+        
         # Skip the BG classes
-        if skip_bg and class_name in BG_CLASSES:
-            logging.debug(f"Skipped background class: {class_name}")
+        if cfg.skip_bg and class_name in BG_CLASSES:
             continue
-
+        
         # Skip the non-background boxes that are too large
         if class_name not in BG_CLASSES:
             x1, y1, x2, y2 = gobs['xyxy'][mask_idx]
             bbox_area = (x2 - x1) * (y2 - y1)
             image_area = image.shape[0] * image.shape[1]
-            if max_bbox_area_ratio is not None and bbox_area > max_bbox_area_ratio * image_area:
-                logging.debug(f"Skipped due to large bounding box area ratio - Class: {class_name}, Area Ratio: {bbox_area/image_area:.4f}")
+            if bbox_area > cfg.max_bbox_area_ratio * image_area:
+                # print(f"Skipping {class_name} with area {bbox_area} > {cfg.max_bbox_area_ratio} * {image_area}")
                 continue
-
+            
         # Skip masks with low confidence
-        if mask_conf_threshold is not None and gobs['confidence'] is not None:
-            if gobs['confidence'][mask_idx] < mask_conf_threshold:
-                # logging.debug(f"Skipped due to low confidence ({gobs['confidence'][mask_idx]}) - Class: {class_name}")
+        if gobs['confidence'] is not None:
+            if gobs['confidence'][mask_idx] < cfg.mask_conf_threshold:
                 continue
-
-        idx_to_keep.append(mask_idx)
-
-    # for key in gobs.keys():
-    #     print(key, type(gobs[key]), len(gobs[key]))
-
-    for attribute in gobs.keys():
-        if isinstance(gobs[attribute], str) or attribute == "classes":  # Captions
-            continue
-        if attribute in ['labels', 'edges', 'text_feats', 'captions']:
-            # Note: this statement was used to also exempt 'detection_class_labels' but that causes a bug. It causes the edges to be misalgined with the objects.
-            continue
-        elif isinstance(gobs[attribute], list):
-            gobs[attribute] = [gobs[attribute][i] for i in idx_to_keep]
-        elif isinstance(gobs[attribute], np.ndarray):
-            gobs[attribute] = gobs[attribute][idx_to_keep]
-        else:
-            raise NotImplementedError(f"Unhandled type {type(gobs[attribute])}")
         
-    filtered_captions = filter_captions(gobs['captions'], gobs['detection_class_labels'])
-    gobs['captions'] = filtered_captions
-
+        idx_to_keep.append(mask_idx)
+    
+    for k in gobs.keys():
+        if isinstance(gobs[k], str) or k == "classes": # Captions
+            continue
+        elif isinstance(gobs[k], list):
+            gobs[k] = [gobs[k][i] for i in idx_to_keep]
+        elif isinstance(gobs[k], np.ndarray):
+            gobs[k] = gobs[k][idx_to_keep]
+        else:
+            raise NotImplementedError(f"Unhandled type {type(gobs[k])}")
+    
     return gobs
 
 

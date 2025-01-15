@@ -25,6 +25,9 @@ from ultralytics import YOLO, SAM
 import supervision as sv
 from collections import Counter
 
+import sys 
+sys.path.append('/home/kev/repos/concept-graphs')
+
 # Local application/library specific imports
 from conceptgraph.utils.optional_rerun_wrapper import (
     OptionalReRun, 
@@ -504,7 +507,7 @@ def main(cfg : DictConfig):
             frame_idx,
             is_final_frame,
         ):
-            objects, map_edges = measure_time(merge_objects)(
+            merged_results = measure_time(merge_objects)(
                 merge_overlap_thresh=cfg["merge_overlap_thresh"],
                 merge_visual_sim_thresh=cfg["merge_visual_sim_thresh"],
                 merge_text_sim_thresh=cfg["merge_text_sim_thresh"],
@@ -518,6 +521,11 @@ def main(cfg : DictConfig):
                 do_edges=cfg["make_edges"],
                 map_edges=map_edges
             )
+            if cfg["make_edges"]:
+                objects, map_edges = merged_results
+            else:
+                objects = merged_results
+                
         orr_log_objs_pcd_and_bbox(objects, obj_classes)
         orr_log_edges(objects, map_edges, obj_classes)
 
