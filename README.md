@@ -126,7 +126,7 @@ pip install -e .
 
 ### Set up LLaVA (used for scene graph generation)
 
-Follow the instructions on the [LLaVA repo](https://github.com/haotian-liu/LLaVA) to set it up. You also need to prepare the LLaVA checkpoints and save them to `$LLAVA_CKPT_PATH`. We have tested with model checkpoint `LLaVA-7B-v0` and [LLaVA code](https://github.com/haotian-liu/LLaVA) at this [commit](https://github.com/haotian-liu/LLaVA/commit/8fc54a09a6be74b2abd913c468fb3d42ae826194). LLaVA codebase at later commits may require some adaptations.
+Follow the instructions on the [LLaVA repo](https://github.com/haotian-liu/LLaVA) to set it up. You also need to prepare the LLaVA checkpoints and save them to `$LLAVA_CKPT_PATH`. We have tested with model checkpoint `LLaVA-7B-v0` and [LLaVA code](https://github.com/haotian-liu/LLaVA) at this [commit](https://github.com/haotian-liu/LLaVA/tree/8fc54a09a6be74b2abd913c468fb3d42ae826194). LLaVA codebase at later commits may require some adaptations.
 
 ```bash
 # Set the env variables as follows (change the paths accordingly)
@@ -313,7 +313,7 @@ Ensure that the `openai` package is installed and that your APIKEY is set. We re
 export OPENAI_API_KEY=<your GPT-4 API KEY here>
 ```
 
-Also note that you may need to make the following change at [this line](https://github.com/haotian-liu/LLaVA/blob/main/llava/mm_utils.py#L68) in the original LLaVa repo to run the following commands. 
+Also note that if you are using the same [commit](https://github.com/haotian-liu/LLaVA/tree/8fc54a09a6be74b2abd913c468fb3d42ae826194) as we did, you may need to make the following change at [this line](https://github.com/haotian-liu/LLaVA/blob/8fc54a09a6be74b2abd913c468fb3d42ae826194/llava/mm_utils.py#L68) in the original LLaVa repo to run the following commands. 
 
 ```python
             # if output_ids[0, -keyword_id.shape[0]:] == keyword_id:
