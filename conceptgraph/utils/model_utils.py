@@ -1,10 +1,18 @@
 import os
 from conceptgraph.utils.general_utils import measure_time
-from segment_anything import sam_model_registry, SamPredictor, SamAutomaticMaskGenerator
+import sys
+if "GSA_PATH" in os.environ:
+    GSA_PATH = os.environ["GSA_PATH"]
+sys.path.append(GSA_PATH)
+
+from segment_anything.segment_anything import sam_model_registry, SamPredictor, SamAutomaticMaskGenerator
 import numpy as np
 import torch
 from PIL import Image
 from scipy.spatial.distance import cosine
+
+if "GSA_PATH" in os.environ:
+    GSA_PATH = os.environ["GSA_PATH"]
 
 def get_sam_predictor(cfg) -> SamPredictor:
     if cfg.sam_variant == "sam":

@@ -13,9 +13,6 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import List, Literal, Union
 from textwrap import wrap
-
-import sys
-sys.path.append("/home/kev/repos/concept-graphs")
 from conceptgraph.utils.general_utils import prjson
 
 import cv2
@@ -45,36 +42,10 @@ from transformers import logging as hf_logging
 torch.autograd.set_grad_enabled(False)
 hf_logging.set_verbosity_error()
 
-import warnings
-
-warnings.filterwarnings("ignore")
-
-import sys
-
-LLAVA_PYTHON_PATH = "/home/kev/packages/LLaVA-NeXT"
-LLAVA_CKPT_PATH = "/home/kev/pretrained_models/llama3-llava-next-8b"
-sys.path.append(LLAVA_PYTHON_PATH)
-
-from llava.model.builder import load_pretrained_model
-from llava.mm_utils import (
-    get_model_name_from_path,
-    process_images,
-    tokenizer_image_token,
-)
-from llava.constants import (
-    IMAGE_TOKEN_INDEX,
-    DEFAULT_IMAGE_TOKEN,
-    DEFAULT_IM_START_TOKEN,
-    DEFAULT_IM_END_TOKEN,
-    IGNORE_INDEX,
-)
-from llava.conversation import conv_templates, SeparatorStyle
-from llava.utils import disable_torch_init
-
 # Import OpenAI API
-# import openai
+import openai
 
-# openai.api_key = os.getenv("OPENAI_API_KEY")
+openai.api_key = os.getenv("OPENAI_API_KEY")
 
 
 @dataclass
@@ -271,7 +242,7 @@ def plot_images_with_captions(images, captions, confidences, low_confidences, ma
 
 
 def extract_node_captions(args):
-    from conceptgraph.llava.llava_model import LLaVaNeXTChat
+    from conceptgraph.llava.llava_model import LLaVaChat
 
     # NOTE: args.mapfile is in cfslam format
     from conceptgraph.slam.slam_classes import MapObjectList
@@ -293,23 +264,18 @@ def extract_node_captions(args):
     # )
 
     # Creating a namespace object to pass args to the LLaVA chat object
-    conv_template = ("llava_llama_3")  # Make sure you use correct chat template for different models
-    model_name = "llava_llama3"
-    device_map = 0
-    load_8bit = True
-    attn_implementation=None # comment out if want to use flash attention
+    chat_args = SimpleNamespace()
+    chat_args.model_path = os.getenv("LLAVA_CKPT_PATH")
+    chat_args.conv_mode = "v0_mmtag" # "multimodal"
+    chat_args.num_gpus = 1
 
     # rich console for pretty printing
     console = rich.console.Console()
 
     # Initialize LLaVA chat
-    disable_torch_init()
-    tokenizer, model, image_processor, max_length = load_pretrained_model(LLAVA_CKPT_PATH, None, model_name, device_map=device_map, load_8bit=load_8bit, attn_implementation=attn_implementation,)  # Add any other thing you want to pass in llava_model_args
-    chat = LLaVaNeXTChat(model, image_processor=image_processor, tokenizer=tokenizer, max_length=max_length, conv_template=conv_template,)
-    chat.model.eval()
-    chat.model.tie_weights()
+    chat = LLaVaChat(chat_args.model_path, chat_args.conv_mode, chat_args.num_gpus)
+    # chat = LLaVaChat(chat_args)
     print("LLaVA chat initialized...")
-    
     query = "Describe the central object in the image."
     # query = "Describe the object in the image that is outlined in red."
 
@@ -324,10 +290,6 @@ def extract_node_captions(args):
     caption_dict_list = []
 
     for idx_obj, obj in tqdm(enumerate(scene_map), total=len(scene_map)):
-        
-        print("Scene Map Keys: ", scene_map[0].keys())
-        
-        
         conf = obj["conf"]
         conf = np.array(conf)
         idx_most_conf = np.argsort(conf)[::-1]
@@ -373,15 +335,15 @@ def extract_node_captions(args):
             else:
                 low_confidences.append(False)
 
-            image_tensor = chat.image_processor.preprocess(image_crop_modified, return_tensors="pt")["pixel_values"][0] # [3,H,W]
+            # image_tensor = chat.image_processor.preprocess(image_crop, return_tensors="pt")["pixel_values"][0]
+            image_tensor = chat.image_processor.preprocess(image_crop_modified, return_tensors="pt")["pixel_values"][0]
 
-            image_features = chat.compute_image_features(image_tensor[None, ...].half().cuda())   
+            image_features = chat.encode_image(image_tensor[None, ...].half().cuda())
             features.append(image_features.detach().cpu())
 
             chat.reset()
             console.print("[bold red]User:[/bold red] " + query)
-            outputs = chat(prompt=query, img=image_crop_modified)
-            
+            outputs = chat(query=query, image_features=image_features)
             console.print("[bold green]LLaVA:[/bold green] " + outputs)
             captions.append(outputs)
         

@@ -17,6 +17,9 @@ import distinctipy
 
 from gradslam.structures.pointclouds import Pointclouds
 
+import sys
+sys.path.append("/home/kev/repos/concept-graphs")
+
 from conceptgraph.slam.slam_classes import MapObjectList
 from conceptgraph.utils.vis import LineMesh
 from conceptgraph.slam.utils import filter_objects, merge_objects

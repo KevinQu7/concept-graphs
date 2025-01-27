@@ -25,6 +25,8 @@ import omegaconf
 from omegaconf import DictConfig
 
 # Local application/library specific imports
+import sys
+sys.path.append("/home/kev/repos/concept-graphs")
 from conceptgraph.dataset.datasets_common import get_dataset
 from conceptgraph.utils.vis import OnlineObjectRenderer
 from conceptgraph.utils.ious import (

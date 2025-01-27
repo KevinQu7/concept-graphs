@@ -12,6 +12,8 @@ import time
 
 from tqdm import trange
 
+import sys
+sys.path.append("/home/kev/repos/concept-graphs")
 from conceptgraph.slam.slam_classes import MapObjectList
 from conceptgraph.utils.general_utils import to_numpy
 from conceptgraph.utils.vis import better_camera_frustum, LineMesh

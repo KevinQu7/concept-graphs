@@ -9,6 +9,8 @@ from tqdm import trange
 
 import open3d as o3d
 
+import sys
+sys.path.append("/home/kev/repos/concept-graphs")
 from conceptgraph.dataset.datasets_common import get_dataset
 
 from gradslam.slam.pointfusion import PointFusion
